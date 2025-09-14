@@ -1,0 +1,111 @@
+services:
+  products-database:
+    image: postgres:latest
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: 'postgres'
+      POSTGRES_PASSWORD: 'postgres'
+      POSTGRES_DB: 'productsdb'
+    volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/1-init.sql
+      - ./data.sql:/docker-entrypoint-initdb.d/2-data.sql
+    networks:
+      backend:
+        aliases:
+          - 'products-database'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  orders-database:
+    image: postgres:latest
+    ports:
+      - '5433:5432'
+    environment:
+      POSTGRES_USER: 'postgres'
+      POSTGRES_PASSWORD: 'postgres'
+      POSTGRES_DB: 'ordersdb'
+    volumes:
+      - ./orders-init.sql:/docker-entrypoint-initdb.d/1-orders-init.sql
+    networks:
+      backend:
+        aliases:
+          - 'orders-database'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  eurekaserver:
+    image: silver/eurekaserver:latest
+    environment:
+      CONFIGSERVER_URI: 'http://configserver:8071'
+    ports:
+      - '8070:8070'
+    depends_on:
+      products-database:
+        condition: service_healthy
+      configserver:
+        condition: service_started
+    networks:
+      backend:
+        aliases:
+          - 'eurekaserver'
+  configserver:
+    image: silver/configserver:latest
+    ports:
+      - '8071:8071'
+    environment:
+      ENCRYPT_KEY: 'fje83Ki8403Iod87dne7Yjsl3THueh48jfuO9j4U2hf64Lo'
+    networks:
+      backend:
+        aliases:
+          - 'configserver'
+  product-service:
+    image: silver/product-service:latest
+    environment:
+      SPRING_PROFILES_ACTIVE: 'docker'
+      PROFILE: 'docker'
+      CONFIGSERVER_URI: 'http://configserver:8071'
+      CONFIGSERVER_PORT: '8071'
+      DATABASESERVER_PORT: '5432'
+      ENCRYPT_KEY: 'IMSYMMETRIC'
+      EUREKA_INSTANCE_HOSTNAME: 'product-service'
+    depends_on:
+      products-database:
+        condition: service_healthy
+      configserver:
+        condition: service_started
+      eurekaserver:
+        condition: service_started
+    ports:
+      - '8080:8080'
+    networks:
+      - backend
+  order-service:
+    image: silver/order-service:latest
+    environment:
+      SPRING_PROFILES_ACTIVE: 'docker'
+      PROFILE: 'docker'
+      CONFIGSERVER_URI: 'http://configserver:8071'
+      CONFIGSERVER_PORT: '8071'
+      DATABASESERVER_PORT: '5433'
+      ENCRYPT_KEY: 'IMSYMMETRIC'
+      EUREKA_INSTANCE_HOSTNAME: 'order-service'
+    depends_on:
+      orders-database:
+        condition: service_healthy
+      configserver:
+        condition: service_started
+      eurekaserver:
+        condition: service_started
+    ports:
+      - '8081:8081'
+    networks:
+      - backend
+
+networks:
+  backend:
+    driver: bridge
